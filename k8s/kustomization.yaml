@@ -7,4 +7,4 @@ resources:
 images:
   - name: book-api-frontend
     newName: docker.io/simwawa/book-api-frontend
-    newTag: initial
+    newTag: sha-93ebd0b
