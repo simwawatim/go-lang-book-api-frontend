@@ -1,0 +1,66 @@
+name: book-api-frontend-ci-cd
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "k8s/**"
+      - "argocd/**"
+      - "**.md"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: book-api-frontend-deploy
+  cancel-in-progress: false
+
+env:
+  IMAGE: docker.io/simwawa/book-api-frontend
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Type check
+        run: |
+          npm ci
+          npm run lint
+
+      - name: Set image tag
+        run: echo "TAG=sha-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update image tag in manifest
+        run: |
+          sed -i "s|newName: .*|newName: ${IMAGE}|; s|newTag: .*|newTag: ${TAG}|" k8s/kustomization.yaml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add k8s/kustomization.yaml
+          git diff --cached --quiet && exit 0
+          git commit -m "deploy: book-api-frontend ${TAG}"
+          git pull --rebase origin main
+          git push
